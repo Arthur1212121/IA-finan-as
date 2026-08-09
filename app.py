@@ -2,13 +2,16 @@ import json
 import os
 import re
 from datetime import datetime
+import streamlit as st
 
 ARQUIVO = "financas.json"
 SALDO_INICIAL = 380.00
 
+# Configuração da página Web
+st.set_page_config(page_title="Minha IA Financeira", page_icon="💰", layout="centered")
 
 # ============================================================
-# MEMÓRIA E PERSISTÊNCIA
+# BANCO DE DADOS LOCAL
 # ============================================================
 
 def carregar_dados():
@@ -18,29 +21,13 @@ def carregar_dados():
                 return json.load(arquivo)
             except json.JSONDecodeError:
                 pass
-
-    dados = {
-        "historico": []
-    }
-
-    salvar_dados(dados)
-    return dados
-
+    return {"historico": []}
 
 def salvar_dados(dados):
     with open(ARQUIVO, "w", encoding="utf-8") as arquivo:
         json.dump(dados, arquivo, ensure_ascii=False, indent=4)
 
-
-# ============================================================
-# OPERAÇÕES FINANCEIRAS (PRECISÃO GARANTIDA)
-# ============================================================
-
 def calcular_saldo(dados):
-    """
-    Garante que o saldo seja SEMPRE 100% preciso, recalculando 
-    com base no histórico completo e saldo inicial.
-    """
     total = SALDO_INICIAL
     for m in dados["historico"]:
         if m["tipo"] == "entrada":
@@ -49,11 +36,9 @@ def calcular_saldo(dados):
             total -= m["valor"]
     return total
 
-
 def adicionar_movimentacao(dados, tipo, valor, descricao):
     if valor <= 0:
-        print("🤖 IA: O valor precisa ser maior que zero!")
-        return False
+        return False, "O valor precisa ser maior que zero!"
 
     movimentacao = {
         "id": len(dados["historico"]) + 1,
@@ -65,167 +50,71 @@ def adicionar_movimentacao(dados, tipo, valor, descricao):
 
     dados["historico"].append(movimentacao)
     salvar_dados(dados)
-    return True
+    return True, f"Registrado: {tipo.upper()} de R$ {valor:.2f}"
 
-
-# ============================================================
-# INTERFACE E EXIBIÇÃO
-# ============================================================
-
-def mostrar_saldo(dados):
-    saldo = calcular_saldo(dados)
-    print(f"\n💰 Seu saldo atual é: R$ {saldo:.2f}")
-
-
-def mostrar_historico(dados):
-    print("\n========== HISTÓRICO ==========")
-
-    if not dados["historico"]:
-        print("Nenhuma movimentação registrada.")
-        return
-
-    for movimento in dados["historico"]:
-        sinal = "+" if movimento["tipo"] == "entrada" else "-"
-
-        print(
-            f"{movimento['id']} | "
-            f"{movimento['data']} | "
-            f"{sinal} R$ {movimento['valor']:.2f} | "
-            f"{movimento['descricao']}"
-        )
-
-    print("===============================")
-
-
-def mostrar_resumo(dados):
-    entradas = sum(
-        m["valor"] for m in dados["historico"] if m["tipo"] == "entrada"
-    )
-
-    saidas = sum(
-        m["valor"] for m in dados["historico"] if m["tipo"] == "saida"
-    )
-
-    saldo = calcular_saldo(dados)
-
-    print("\n========== RESUMO ==========")
-    print(f"Saldo Inicial:  R$ {SALDO_INICIAL:.2f}")
-    print(f"Total recebido: R$ {entradas:.2f}")
-    print(f"Total gasto:    R$ {saidas:.2f}")
-    print(f"Saldo atual:    R$ {saldo:.2f}")
-    print("============================")
-
-
-def mostrar_ajuda():
-    print("""
-========== COMANDOS ==========
-
-Você pode falar naturalmente comigo, por exemplo:
- - "recebi 50 da pizzaria"
- - "gastei 12 com almoço"
- - "R$ 100 de freela"
-
-Ou usar comandos diretos:
- - saldo       : Mostra seu saldo atual
- - historico   : Mostra todas as movimentações
- - resumo      : Resumo de entradas e saídas
- - ajuda       : Mostra esta lista
- - sair        : Fecha o programa
-===============================
-""")
-
-
-# ============================================================
-# PROCESSADOR DE LINGUAGEM NATURAL (IA BÁSICA)
-# ============================================================
-
-def processar_texto_livre(dados, mensagem):
-    """
-    Analisa frases do usuário e extrai valores e intenções automaticamente.
-    """
-    # Procura por números no texto (ex: 50, 12.50, 12,50)
-    match_valor = re.search(r'(\d+([.,]\d{1,2})?)', mensagem)
+def processar_texto(dados, texto):
+    texto = texto.lower().strip()
+    match_valor = re.search(r'(\d+([.,]\d{1,2})?)', texto)
     if not match_valor:
-        return False
+        return False, "Não encontrei nenhum valor numérico no texto."
 
-    # Converte o valor encontrado para float
-    valor_str = match_valor.group(1).replace(",", ".")
-    valor = float(valor_str)
+    valor = float(match_valor.group(1).replace(",", "."))
 
-    # Define se é entrada ou saída baseado em palavras-chave
     palavras_entrada = ["recebi", "ganhei", "deposito", "entrada", "recebidos", "salario"]
     palavras_saida = ["gastei", "paguei", "saida", "gastos", "comprei"]
 
     tipo = None
-    if any(p in mensagem for p in palavras_entrada):
+    if any(p in texto for p in palavras_entrada):
         tipo = "entrada"
-    elif any(p in mensagem for p in palavras_saida):
+    elif any(p in texto for p in palavras_saida):
         tipo = "saida"
 
     if tipo:
-        # Usa o resto do texto como descrição
-        descricao = mensagem
-        if adicionar_movimentacao(dados, tipo, valor, descricao):
-            print(f"\n🤖 IA: Entendi! Registrei uma {tipo} de R$ {valor:.2f}.")
-            mostrar_saldo(dados)
-        return True
-
-    return False
-
-
-def interpretar_comando(dados, mensagem):
-    msg_limpa = mensagem.lower().strip()
-
-    if msg_limpa in ["saldo", "quanto tenho", "quanto eu tenho"]:
-        mostrar_saldo(dados)
-        return
-
-    if msg_limpa in ["historico", "histórico", "extrato"]:
-        mostrar_historico(dados)
-        return
-
-    if msg_limpa in ["resumo", "relatorio", "relatório"]:
-        mostrar_resumo(dados)
-        return
-
-    if msg_limpa in ["ajuda", "help"]:
-        mostrar_ajuda()
-        return
-
-    # Tenta interpretar como texto livre (ex: "gastei 20 no mercado")
-    if processar_texto_livre(dados, msg_limpa):
-        return
-
-    print("\n🤖 IA: Não entendi o comando.")
-    print("Digite 'ajuda' para ver como interagir.")
-
+        return adicionar_movimentacao(dados, tipo, valor, texto)
+    
+    return False, "Não entendi se foi uma entrada ou gasto. Use termos como 'gastei' ou 'recebi'."
 
 # ============================================================
-# PROGRAMA PRINCIPAL
+# INTERFACE WEB (STREAMLIT)
 # ============================================================
 
-def main():
-    dados = carregar_dados()
+dados = carregar_dados()
+saldo_atual = calcular_saldo(dados)
 
-    print("======================================")
-    print("       🤖 MINHA IA FINANCEIRA")
-    print("======================================")
-    mostrar_saldo(dados)
+st.title("🤖 IA Financeira Personalizada")
 
-    while True:
-        mensagem = input("\nVocê: ").strip()
+# Exibição dos Cards Principais
+col1, col2 = st.columns(2)
+col1.metric("Saldo Atual", f"R$ {saldo_atual:.2f}")
 
-        if not mensagem:
-            continue
+entradas = sum(m["valor"] for m in dados["historico"] if m["tipo"] == "entrada")
+saidas = sum(m["valor"] for m in dados["historico"] if m["tipo"] == "saida")
+col2.metric("Gasto Total", f"R$ {saidas:.2f}", delta=f"+ R$ {entradas:.2f} recebidos")
 
-        if mensagem.lower() in ["sair", "exit", "quit"]:
-            print("\n🤖 IA: Dados salvos com segurança.")
-            mostrar_saldo(dados)
-            print("Até mais! 👋")
-            break
+st.divider()
 
-        interpretar_comando(dados, mensagem)
+# Campo para o usuário conversar / enviar comandos
+st.subheader("💬 Digite uma movimentação")
+comando = st.text_input("Exemplo: 'gastei 30 no mercado' ou 'recebi 150 de freela'", key="input_comando")
 
+if st.button("Enviar"):
+    if comando:
+        sucesso, mensagem = processar_texto(dados, comando)
+        if sucesso:
+            st.success(mensagem)
+            st.rerun()
+        else:
+            st.warning(mensagem)
+    else:
+        st.info("Digite alguma mensagem antes de enviar.")
 
-if __name__ == "__main__":
-    main()
+st.divider()
+
+# Histórico
+st.subheader("📋 Histórico de Transações")
+if dados["historico"]:
+    for m in reversed(dados["historico"]):
+        sinal = "🟢 +" if m["tipo"] == "entrada" else "🔴 -"
+        st.write(f"**{m['id']}** | {m['data']} | {sinal} R$ {m['valor']:.2f} — *{m['descricao']}*")
+else:
+    st.write("Nenhuma movimentação registrada ainda.")
